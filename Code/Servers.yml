@@ -1,0 +1,177 @@
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to resource names
+        Type: String
+
+Resources:
+
+  S3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+
+  EC2AccessS3Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles:
+      - !Ref S3Role
+
+  S3AccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties: 
+      PolicyName: S3AccessPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: "*"
+      Roles: 
+        - !Ref S3Role
+
+  LoadBalancerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: LBSG
+      GroupDescription: Load balancer Security Group
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPC-ID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0      
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0    
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} LB SG
+    
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: WSSG
+      GroupDescription: Web Server Security Group
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPC-ID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+#        - IpProtocol: tcp
+#          FromPort: 22
+#          ToPort: 22
+#          CidrIp: 0.0.0.0/0      
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0    
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} WS SG
+
+  WebLC:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      LaunchConfigurationName: UdagramLC
+      IamInstanceProfile: !Ref EC2AccessS3Profile
+      ImageId: ami-07b4f3c02c7f83d59
+      InstanceMonitoring: true
+      InstanceType: t3a.medium
+ #     KeyName: Mohsen
+      SecurityGroups:
+      - !Ref WebServerSG
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sdk"
+        Ebs:
+          VolumeSize: 10
+      UserData:
+         Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install unzip awscli -y
+          apt-get install apache2 -y
+          systemctl start apache2.service
+          cd /var/www/html
+          aws s3 cp s3://udagrampro2mohsen/udagram.zip .
+          unzip -o udagram.zip
+
+  WebASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+      - Fn::ImportValue: !Sub "${EnvironmentName}-PRIV-NETS"
+      LaunchConfigurationName: !Ref WebLC
+      TargetGroupARNs: 
+      - !Ref WebTG
+      MaxSize: '4'
+      MinSize: '4'
+
+  WebTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 8
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: 
+        Fn::ImportValue:
+          Fn::Sub: "${EnvironmentName}-VPC-ID"
+    
+  WebLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups: 
+      - !Ref LoadBalancerSG
+      Subnets:
+      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+
+  WebLBListner: 
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTG
+      LoadBalancerArn: !Ref WebLB
+      Port: 80
+      Protocol: HTTP
+
+  WebLBLRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref WebTG
+      Conditions:
+      - Field: path-pattern
+        Values: [/]
+      ListenerArn: !Ref WebLBListner
+      Priority: 1
+
+
+
+Outputs:
+  LBURL:
+    Description: DNS Name of the created Load balancer
+    Value: !Join [ "", [ "http://", !GetAtt WebLB.DNSName ] ]

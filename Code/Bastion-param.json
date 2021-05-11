@@ -1,0 +1,10 @@
+[
+    {
+        "ParameterKey": "EnvironmentName",
+        "ParameterValue": "UdagramProject"
+    },
+    {
+        "ParameterKey": "MyHomeIP",
+        "ParameterValue": "156.201.213.65/32"
+    }
+]

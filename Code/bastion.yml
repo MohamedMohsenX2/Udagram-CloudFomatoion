@@ -1,0 +1,142 @@
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names.
+    Type: String
+
+  MyHomeIP:
+    Description: My home IP which will be allowed to access the bastion host.
+    Type: String
+    Default: 1.1.1.1/32
+
+
+Resources:
+  BastionSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: BastionSG
+      GroupDescription: Bastion server security group
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPC-ID"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Sub ${MyHomeIP}
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion SG
+          
+  BastionEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: Mohsen
+      ImageId: ami-07b4f3c02c7f83d59
+      InstanceType: t3.small
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvironmentName}-PUB1-SN
+      SecurityGroupIds:
+        - !Ref BastionSG
+      IamInstanceProfile: !Ref bastionAccessS3Profile
+      UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            apt-get update -y
+            apt-get install awscli -y
+            aws s3 cp s3://udagrampro2mohsen/Mohsen.pem .
+            chmod 600 Mohsen.pem
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion SG
+
+  BastionEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPC-ID"
+      InstanceId: !Ref BastionEC2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion Elastic IP1
+    
+  BastionEIPAss:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref BastionEC2
+      AllocationId: !GetAtt BastionEIP.AllocationId
+
+  BastionEC22:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: Mohsen
+      ImageId: ami-07b4f3c02c7f83d59
+      InstanceType: t3.small
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvironmentName}-PUB2-SN
+      SecurityGroupIds:
+        - !Ref BastionSG
+      IamInstanceProfile: !Ref bastionAccessS3Profile
+      UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            apt-get update -y
+            apt-get install awscli -y
+            aws s3 cp s3://udagrampro2mohsen/Mohsen.pem .
+            chmod 600 Mohsen.pem
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion SG
+
+  BastionEIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPC-ID"
+      InstanceId: !Ref BastionEC22
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion Elastic IP2
+
+  BastionEIP2Ass:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref BastionEC22
+      AllocationId: !GetAtt BastionEIP2.AllocationId
+
+  bastionS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+
+  bastionAccessS3Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles:
+      - !Ref bastionS3Role
+
+  bastionAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties: 
+      PolicyName: S3AccessPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: "*"
+      Roles: 
+        - !Ref bastionS3Role
