@@ -18,7 +18,6 @@ Udacity Cloud DevOps Engineer project to deploy a high-availability web app, Uda
 4. Create the bastion servers stack
 >sh create.sh UdagramBastion Project2-bastion.yml Project2-bastion-param.json
 
-![alt text](http://url/to/img.png)
 ![Udagram_app](https://github.com/MohamedMohsenX2/Udagram-CloudFomatoion/blob/main/UdagramProject.jpeg)
 
 ## Dependencies
